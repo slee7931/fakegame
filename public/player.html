@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>인생역전 홀짝 게임</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            transition: 0.4s;
+        }
+
+        .timer-box {
+            font-size: 2em;
+            color: #ff4757;
+            font-weight: bold;
+            margin-bottom: 10px;
+            border: 2px solid #ff4757;
+            display: inline-block;
+            padding: 5px 20px;
+            border-radius: 10px;
+        }
+
+        .balance-card {
+            background: #2c3e50;
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+            border-bottom: 5px solid #f1c40f;
+        }
+
+        .money {
+            font-size: 3em;
+            color: #f1c40f;
+            font-weight: bold;
+        }
+
+        .bet-setup {
+            background: #333;
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+        }
+
+        .bet-amount {
+            font-size: 2.5em;
+            color: #2ecc71;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .unit-btn {
+            background: #444;
+            color: white;
+            border: 1px solid #555;
+            padding: 12px;
+            cursor: pointer;
+            border-radius: 8px;
+            font-weight: bold;
+            margin: 2px;
+        }
+
+        #main-board {
+            background: #222;
+            padding: 30px;
+            border-radius: 20px;
+            border: 3px solid #444;
+        }
+
+        #display {
+            font-size: 5em;
+            font-weight: bold;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .bet-btn {
+            flex: 1;
+            padding: 20px;
+            font-size: 2em;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            color: white;
+            font-weight: bold;
+        }
+
+        .btn-odd {
+            background: #e67e22;
+        }
+
+        .btn-even {
+            background: #2980b9;
+        }
+
+        .win-bg {
+            background: #1b5e20 !important;
+        }
+
+        .lose-bg {
+            background: #b71c1c !important;
+        }
+
+        .history-list {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .history-item {
+            width: 30px;
+            height: 30px;
+            line-height: 30px;
+            border-radius: 50%;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .item-홀 {
+            background: #e67e22;
+        }
+
+        .item-짝 {
+            background: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="timer-box">남은 시간: <span id="timer">5</span>초</div>
+
+    <div class="balance-card">
+        <div>현재 자산: <span class="money" id="money">100,000</span>원</div>
+    </div>
+
+    <div class="bet-setup">
+        <div class="bet-amount" id="current-bet">0</div>
+        <button class="unit-btn" onclick="addBet(5000)">+5천</button>
+        <button class="unit-btn" onclick="addBet(10000)">+1만</button>
+        <button class="unit-btn" onclick="addBet(50000)">+5만</button>
+        <button class="unit-btn" style="background:#c0392b" onclick="resetBet()">초기화</button>
+    </div>
+
+    <div id="main-board">
+        <div id="display">?</div>
+        <div id="status" style="margin-top:10px; color:#aaa;">베팅액을 정하고 홀/짝을 선택하세요</div>
+        <div class="btn-group">
+            <button class="bet-btn btn-odd" onclick="submitBet('홀')">홀</button>
+            <button class="bet-btn btn-even" onclick="submitBet('짝')">짝</button>
+        </div>
+    </div>
+    <div class="history-list" id="history-list"></div>
+
+    <script>
+        const socket = io();
+        let myMoney = 100000, betAmount = 0, lastChoice = "";
+
+        // 타이머 동기화 및 버튼 재활성화 로직
+        socket.on('timer_update', (time) => {
+        document.getElementById('timer').innerText = time;
+
+        // 시간이 5초로 리셋되는 시점 = 다음 라운드 시작
+        if (time === 5) {
+        document.body.classList.remove('win-bg', 'lose-bg');
+        document.getElementById('display').innerText = "?";
+        document.getElementById('status').innerText = "베팅을 선택하세요";
+
+        // [수정] 모든 버튼(베팅 및 금액조절)을 다시 활성화
+        document.querySelectorAll('.bet-btn, .unit-btn').forEach(b => b.disabled = false);
+        }
+        });
+
+        function addBet(amt) {
+        // 현재 자산을 초과하지 않게 베팅액 조절
+        if (betAmount + amt > myMoney) betAmount = myMoney;
+        else betAmount += amt;
+        document.getElementById('current-bet').innerText = betAmount.toLocaleString();
+        }
+
+        function resetBet() {
+        betAmount = 0;
+        document.getElementById('current-bet').innerText = "0";
+        }
+
+        function submitBet(choice) {
+        if (betAmount <= 0) return alert("베팅 금액을 설정하세요!");
+        if (betAmount > myMoney) {
+        alert("자산이 부족합니다!");
+        return resetBet();
+        }
+
+        lastChoice = choice;
+        // 베팅 버튼과 금액 조절 버튼을 모두 비활성화 (결과 나올 때까지 조작 금지)
+        document.querySelectorAll('.bet-btn, .unit-btn').forEach(b => b.disabled = true);
+        document.getElementById('display').innerText = "⏳";
+        document.getElementById('status').innerText = `[${choice}]에 베팅 완료! 결과를 기다리세요.`;
+
+        socket.emit('player_bet', { choice: choice, amount: betAmount });
+        }
+
+        socket.on('game_result', (data) => {
+        document.getElementById('display').innerText = data.result;
+
+        if (lastChoice !== "") {
+        if(lastChoice === data.result) {
+        myMoney += betAmount;
+        document.body.classList.add('win-bg');
+        document.getElementById('status').innerText = `🎉 당첨! +${betAmount.toLocaleString()}원`;
+        } else {
+        myMoney -= betAmount;
+        document.body.classList.add('lose-bg');
+        document.getElementById('status').innerText = `💀 낙첨! -${betAmount.toLocaleString()}원`;
+        }
+        document.getElementById('money').innerText = myMoney.toLocaleString();
+        } else {
+        document.getElementById('status').innerText = "이번 판은 참여하지 않았습니다.";
+        }
+
+        lastChoice = ""; // 베팅 상태 초기화
+        updateHistory(data.history);
+        });
+
+        socket.on('init_history', (h) => updateHistory(h));
+        function updateHistory(h) {
+        document.getElementById('history-list').innerHTML = h.map(i => `<div class="history-item item-${i}">${i}</div>`).join('');
+        }
+    </script>
+</body>
+</html>
