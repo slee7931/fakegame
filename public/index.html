@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>바카라 시뮬레이션</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            background: #074d21;
+            color: white;
+            font-family: 'Pretendard', sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 10px;
+        }
+
+        /* 타이머 스타일 */
+        .timer-box {
+            font-size: 1.5em;
+            color: #f1c40f;
+            font-weight: bold;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 25px;
+            border-radius: 25px;
+            display: inline-block;
+            margin: 10px 0;
+            min-width: 220px;
+            border: 2px solid #f1c40f;
+        }
+
+        /* 테이블 스타일 */
+        .table {
+            display: flex;
+            justify-content: space-around;
+            margin: 10px 0;
+        }
+
+        .card-slot {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            height: 90px;
+        }
+
+        .card {
+            width: 60px;
+            height: 85px;
+            background: white;
+            border-radius: 6px;
+            font-size: 1.4em;
+            font-weight: bold;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            visibility: hidden;
+            transform: rotateY(90deg);
+            transition: transform 0.6s;
+            border: 1px solid #ccc;
+        }
+
+            .card.active {
+                visibility: visible;
+            }
+
+            .card.show {
+                transform: rotateY(0deg);
+            }
+
+        .red {
+            color: #d63031;
+        }
+
+        .black {
+            color: #2d3436;
+        }
+
+        .score-display {
+            font-size: 2em;
+            font-weight: bold;
+            color: #f1c40f;
+            opacity: 0;
+            margin-top: 5px;
+        }
+
+            .score-display.active {
+                opacity: 1;
+            }
+
+        /* 컨트롤 패널 */
+        .controls {
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 20px;
+            border: 2px solid #c1a35f;
+            margin-top: 10px;
+        }
+
+        /* 금액 버튼 그리드 (4칸) */
+        .unit-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .unit-btn {
+            background: #222;
+            color: white;
+            border: 1px solid #777;
+            padding: 12px 0;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+
+            .unit-btn:active {
+                transform: scale(0.95);
+            }
+
+        .btn-minus {
+            color: #ff7675;
+            border-color: #ff7675;
+        }
+
+        .btn-plus {
+            color: #55efc4;
+            border-color: #55efc4;
+        }
+
+        .btn-reset {
+            grid-column: span 4;
+            background: #c0392b;
+            color: white;
+            border-color: #e74c3c;
+            font-size: 1.1em;
+            padding: 10px;
+        }
+
+        /* 비활성화 상태 스타일 */
+        .unit-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            filter: grayscale(100%);
+        }
+
+        .bet-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* [중요] 내가 선택한 버튼은 비활성화 되어도 밝게 유지 & 강조 */
+        .bet-btn.selected {
+            opacity: 1 !important; /* 투명도 무시하고 선명하게 */
+            border: 4px solid #f1c40f !important; /* 황금색 테두리 */
+            box-shadow: 0 0 15px #f1c40f; /* 발광 효과 */
+            transform: scale(1.05); /* 살짝 커짐 */
+            z-index: 10;
+        }
+
+        /* 베팅 확정 버튼 */
+        .bet-btns {
+            display: flex;
+            gap: 15px;
+        }
+
+        .bet-btn {
+            flex: 1;
+            padding: 15px;
+            font-size: 1.4em;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.5);
+            transition: 0.2s;
+            border: 4px solid transparent; /* 테두리 공간 확보 */
+        }
+
+            .bet-btn small {
+                font-size: 0.6em;
+                display: block;
+                margin-top: 5px;
+                opacity: 0.8;
+            }
+
+            .bet-btn:active {
+                transform: translateY(4px);
+                box-shadow: none;
+            }
+
+        /* 히스토리 */
+        .history {
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .h-item {
+            width: 26px;
+            height: 26px;
+            line-height: 26px;
+            border-radius: 50%;
+            font-size: 0.7em;
+            font-weight: bold;
+        }
+
+        .item-P {
+            background: #0984e3;
+        }
+
+        .item-B {
+            background: #d63031;
+        }
+
+        .item-T {
+            background: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="timer-box" id="status-display">베팅 시간: <span id="timer">7</span>s</div>
+    <div style="margin-bottom:10px; font-size:1.1em;">보유 머니: <span id="money" style="color:#f1c40f; font-weight:bold;">100,000</span>원</div>
+
+    <div class="table">
+        <div class="side">
+            <h3 style="color:#0984e3; margin:5px;">PLAYER</h3>
+            <div class="card-slot"><div id="p1" class="card"></div><div id="p2" class="card"></div><div id="p3" class="card" style="border: 2px solid #f1c40f;"></div></div>
+            <div id="p-total" class="score-display">0</div>
+        </div>
+        <div class="side">
+            <h3 style="color:#d63031; margin:5px;">BANKER</h3>
+            <div class="card-slot"><div id="b1" class="card"></div><div id="b2" class="card"></div><div id="b3" class="card" style="border: 2px solid #f1c40f;"></div></div>
+            <div id="b-total" class="score-display">0</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div style="font-size:1.4em; color:#55efc4; margin-bottom:10px; font-weight:bold;">
+            현재 베팅금: <span id="current-bet">0</span>원
+        </div>
+
+        <div class="unit-grid">
+            <button class="unit-btn btn-minus" onclick="changeBet(-5000)">-5,000</button>
+            <button class="unit-btn btn-minus" onclick="changeBet(-10000)">-10,000</button>
+            <button class="unit-btn btn-minus" onclick="changeBet(-50000)">-50,000</button>
+            <button class="unit-btn btn-minus" onclick="changeBet(-100000)">-100,000</button>
+
+            <button class="unit-btn btn-plus" onclick="changeBet(5000)">+5,000</button>
+            <button class="unit-btn btn-plus" onclick="changeBet(10000)">+10,000</button>
+            <button class="unit-btn btn-plus" onclick="changeBet(50000)">+50,000</button>
+            <button class="unit-btn btn-plus" onclick="changeBet(100000)">+100,000</button>
+
+            <button class="unit-btn btn-reset" onclick="resetBet()">금액 초기화 (RESET)</button>
+        </div>
+
+        <div class="bet-btns">
+            <button class="bet-btn" id="btn-p" style="background:#0984e3" onclick="submitBet('플레이어')">
+                PLAYER<small>(2.0배)</small>
+            </button>
+            <button class="bet-btn" id="btn-b" style="background:#d63031" onclick="submitBet('뱅커')">
+                BANKER<small>(1.90배)</small>
+            </button>
+        </div>
+    </div>
+
+    <div class="history" id="history"></div>
+
+    <script>
+        const socket = io();
+        let myMoney = 100000, betAmount = 0, lastChoice = "";
+
+        socket.on('timer_update', (t) => {
+        if (t > 0) {
+        document.getElementById('status-display').innerHTML = `베팅 시간: <span id="timer">${t}</span>s`;
+        enableButtons(true);
+        } else {
+        document.getElementById('status-display').innerHTML = `<span style="color:#ff4757">베팅 마감 (결과 대기)</span>`;
+        enableButtons(false);
+        }
+        });
+
+        function enableButtons(on) {
+        // 이미 베팅을 했다면(lastChoice가 있으면) 타이머가 돌아도 버튼을 다시 켜지 않음 (중복 베팅 방지)
+        const shouldEnable = (lastChoice === "") && on;
+
+        document.querySelectorAll('.bet-btn, .unit-btn').forEach(b => {
+        // 내가 선택한 버튼(.selected)은 비활성화되어도 흐리게 만들지 않음 (CSS가 처리)
+        // 하지만 클릭은 안 되어야 하므로 disabled 속성은 줌
+        b.disabled = !shouldEnable;
+        });
+        }
+
+        function resetUI() {
+        document.querySelectorAll('.card').forEach(c => { c.classList.remove('show', 'active', 'red', 'black'); c.innerHTML = ""; });
+        document.querySelectorAll('.score-display').forEach(s => s.classList.remove('active'));
+        document.body.style.background = "#074d21";
+
+        // 버튼 선택 효과 제거
+        document.getElementById('btn-p').classList.remove('selected');
+        document.getElementById('btn-b').classList.remove('selected');
+
+        lastChoice = "";
+        }
+
+        function changeBet(amt) {
+        betAmount = Math.max(0, Math.min(myMoney, betAmount + amt));
+        document.getElementById('current-bet').innerText = betAmount.toLocaleString();
+        }
+
+        function resetBet() {
+        betAmount = 0;
+        document.getElementById('current-bet').innerText = "0";
+        }
+
+        function submitBet(choice) {
+        if (betAmount <= 0) return alert("베팅 금액을 설정해주세요!");
+        lastChoice = choice;
+        enableButtons(false); // 버튼 전체 잠금
+
+        // 선택한 버튼에 'selected' 클래스 추가 (시각적 강조)
+        if (choice === '플레이어') document.getElementById('btn-p').classList.add('selected');
+        if (choice === '뱅커') document.getElementById('btn-b').classList.add('selected');
+
+        socket.emit('player_bet', { choice, amount: betAmount });
+        }
+
+        socket.on('game_result', (data) => {
+        const c = data.result.cards;
+        const reveal = (id, obj, delay) => setTimeout(() => {
+        const el = document.getElementById(id);
+        el.innerHTML = `<div>${obj.rank}</div><div style="font-size:1.5em">${obj.symbol}</div>`;
+        el.className = `card active show ${obj.color}`;
+        }, delay);
+
+        reveal('p1', c.p1, 500); reveal('b1', c.b1, 1300);
+        reveal('p2', c.p2, 2100); reveal('b2', c.b2, 2900);
+        let delay = 3700;
+        if (c.p3) { reveal('p3', c.p3, delay); delay += 1000; }
+        if (c.b3) { reveal('b3', c.b3, delay); delay += 1000; }
+
+        setTimeout(() => {
+        document.getElementById('p-total').innerText = c.pScore; document.getElementById('p-total').classList.add('active');
+        document.getElementById('b-total').innerText = c.bScore; document.getElementById('b-total').classList.add('active');
+        if (lastChoice !== "") {
+        if (data.result.winner === '타이') {
+        document.body.style.background = "#27ae60";
+        } else if (lastChoice === data.result.winner) {
+        myMoney += (lastChoice === '플레이어' ? betAmount : Math.floor(betAmount * 0.9));
+        document.body.style.background = "#1b5e20";
+        } else {
+        myMoney -= betAmount;
+        document.body.style.background = "#7b1c1c";
+        }
+        document.getElementById('money').innerText = myMoney.toLocaleString();
+        }
+        updateHistory(data.history);
+        setTimeout(resetUI, 4000);
+        }, delay + 500);
+        });
+
+        socket.on('init_history', updateHistory);
+        function updateHistory(h) {
+        document.getElementById('history').innerHTML = h.map(i => `<div class="h-item item-${i}">${i}</div>`).join('');
+        }
+    </script>
+</body>
+</html>
